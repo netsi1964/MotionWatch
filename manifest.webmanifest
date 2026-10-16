@@ -1,0 +1,18 @@
+{
+  "name": "MotionWatch",
+  "short_name": "MotionWatch",
+  "description": "Privacy-first motion-activated video recorder. Videos stay on your device.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0b0f",
+  "theme_color": "#0a0b0f",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%23e11d48'/><circle cx='16' cy='16' r='8.2' fill='none' stroke='white' stroke-width='2.2'/><circle cx='16' cy='16' r='3.4' fill='white'/></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

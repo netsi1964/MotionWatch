@@ -1,0 +1,16 @@
+{
+  "name": "motionwatch",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Privacy-first browser motion/sound-activated video recorder",
+  "scripts": {
+    "serve": "node tests/serve.mjs",
+    "test": "node --test tests/unit/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}
