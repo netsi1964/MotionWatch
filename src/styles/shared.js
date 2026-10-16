@@ -34,14 +34,14 @@ export const sharedCss = `
   .btn-sm { min-height: 36px; padding: 0 var(--mw-space-3); }
 
   /* ---- fields ---- */
-  input[type="text"], input[type="number"], input[type="time"], select {
+  input[type="text"], input[type="number"], input[type="time"], input[type="date"], select {
     width: 100%; min-height: var(--mw-touch-min); padding: 0 var(--mw-space-3);
     background: var(--mw-surface-2); color: var(--mw-text);
     border: 1px solid var(--mw-border); border-radius: var(--mw-radius);
     transition: border-color var(--mw-transition), background var(--mw-transition);
   }
-  input[type="text"]:hover, input[type="number"]:hover, input[type="time"]:hover, select:hover { border-color: var(--mw-border-strong); }
-  input[type="text"]:focus-visible, input[type="number"]:focus-visible, input[type="time"]:focus-visible, select:focus-visible {
+  input[type="text"]:hover, input[type="number"]:hover, input[type="time"]:hover, input[type="date"]:hover, select:hover { border-color: var(--mw-border-strong); }
+  input[type="text"]:focus-visible, input[type="number"]:focus-visible, input[type="time"]:focus-visible, input[type="date"]:focus-visible, select:focus-visible {
     outline: 2px solid var(--mw-focus); outline-offset: 0; border-color: transparent;
   }
   select { appearance: none; -webkit-appearance: none; padding-right: 2.25rem;

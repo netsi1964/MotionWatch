@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluate, normalizeSchedules, MAX_SCHEDULES } from "../../src/services/schedule.js";
+import { evaluate, normalizeSchedules, MAX_SCHEDULES, oneOffIn } from "../../src/services/schedule.js";
 
 const mk = (o = {}) => normalizeSchedules([{ name: "N", days: [0, 1, 2, 3, 4, 5, 6], start: "22:00", end: "06:00", ...o }]);
 // Friday 2026-10-16, Saturday 17, Sunday 18
@@ -112,4 +112,30 @@ test("a whole-day window ends 24 hours after it began", () => {
   assert.equal(r.from.getHours(), 8);
   assert.equal(r.until.getHours(), 8);
   assert.equal(r.until.getDate(), 17);
+});
+
+test("one-off window runs once between its dates", () => {
+  const s = normalizeSchedules([{ name: "Trip", date: "2026-10-16", start: "22:00", endDate: "2026-10-18", end: "08:00" }]);
+  assert.equal(evaluate(s, at(21, 59)).active, false);
+  assert.equal(evaluate(s, at(21, 59)).next.getTime(), at(22).getTime());
+  assert.equal(evaluate(s, at(12, 0, 17)).active, true, "in the middle, regardless of weekday");
+  assert.equal(evaluate(s, at(8, 0, 18)).active, false);
+  const over = evaluate(s, at(9, 0, 18));
+  assert.equal(over.restricted, true, "an ended one-off still restricts monitoring");
+  assert.equal(over.next, null);
+  assert.equal(evaluate(s, at(22, 0, 23)).active, false, "never repeats next week");
+});
+
+test("one-off end is never before its start", () => {
+  const [a] = normalizeSchedules([{ date: "2026-10-16", start: "22:00", end: "06:00" }]);
+  assert.equal(a.endDate, "2026-10-17", "an earlier end time rolls on to the next day");
+  const [b] = normalizeSchedules([{ date: "2026-10-16", start: "10:00", endDate: "2026-10-10", end: "12:00" }]);
+  assert.equal(b.endDate, "2026-10-16");
+  const [c] = normalizeSchedules([{ date: "2026-13-40", start: "10:00", end: "12:00" }]);
+  assert.equal(c.date, undefined, "an invalid date makes it weekly");
+});
+
+test("oneOffIn starts in N minutes and lasts the given hours", () => {
+  const o = oneOffIn(5, 1, at(23, 30));
+  assert.deepEqual([o.date, o.start, o.endDate, o.end], ["2026-10-16", "23:35", "2026-10-17", "00:35"]);
 });

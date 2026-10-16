@@ -97,3 +97,10 @@ test("sensitivity tokens are clamped and bad ones ignored", () => {
   assert.equal(a.sensitivity, 100);
   assert.equal(b.sensitivity, null);
 });
+
+test("one-off schedule dates round-trip", () => {
+  const q = toQuery({ ...defaults, schedules: [{ name: "Trip", days: [0, 1, 2, 3, 4, 5, 6], start: "22:00", end: "08:00", enabled: true, date: "2026-10-16", endDate: "2026-10-18" }] }, defaults);
+  assert.match(q, /sched=Trip~0123456~2200~0800~1~d20261016-20261018/);
+  const [s] = parseQuery("?" + q).schedules;
+  assert.deepEqual([s.date, s.endDate], ["2026-10-16", "2026-10-18"]);
+});

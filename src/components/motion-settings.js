@@ -4,7 +4,7 @@ import { toQuery } from "../services/urlsettings.js";
 import { getStorageUsage, estimateQuota, requestPersistentStorage } from "../services/storage.js";
 import { supportedLocales } from "../i18n/locales.js";
 import { VERSION } from "../version.js";
-import { evaluate as evaluateSchedules, MAX_SCHEDULES } from "../services/schedule.js";
+import { evaluate as evaluateSchedules, MAX_SCHEDULES, oneOffIn, toDate, dateStr, timeStr } from "../services/schedule.js";
 import { sharedCss, syncRange } from "../styles/shared.js";
 import { icon } from "./icons.js";
 import { recordingFormat } from "../services/capabilities.js";
@@ -51,6 +51,16 @@ template.innerHTML = `
     .sched .times label { display: flex; align-items: center; gap: var(--mw-space-2); font-size: var(--mw-text-sm); font-weight: 600; }
     .sched .times input { width: auto; }
     .sched .del { margin-left: auto; }
+    .sched .kind .seg span { padding-inline: var(--mw-space-3); }
+    .sched .times input[type="date"] { width: auto; }
+    .sched .next-day { font-size: var(--mw-text-xs); color: var(--mw-text-muted); font-weight: 500; }
+    .sched .quick { display: flex; flex-wrap: wrap; gap: var(--mw-space-1); align-items: center; }
+    .sched .quick-label { font-size: var(--mw-text-sm); font-weight: 600; margin-right: var(--mw-space-1); }
+    .sched .err { margin: 0; font-size: var(--mw-text-sm); color: var(--mw-danger-text); }
+    .sched .err:empty { display: none; }
+    .sched input[aria-invalid="true"] { border-color: var(--mw-danger-text); }
+    .sched.over { opacity: 0.65; }
+    .sched-actions { display: flex; flex-wrap: wrap; gap: var(--mw-space-2); }
 
     .foot { text-align: center; }
     .version { font-size: var(--mw-text-xs); color: var(--mw-text-muted); margin-top: var(--mw-space-4); }
@@ -133,7 +143,10 @@ template.innerHTML = `
         <p class="help sched-help"></p>
         <p class="sched-status" role="status"></p>
         <ul class="sched-list" aria-labelledby="h-sched"></ul>
-        <button type="button" class="btn btn-outline sched-add">${icon("plus")}<span></span></button>
+        <div class="sched-actions">
+          <button type="button" class="btn btn-outline sched-add">${icon("plus")}<span></span></button>
+          <button type="button" class="btn btn-outline sched-soon">${icon("timer")}<span></span></button>
+        </div>
       </div>
     </section>
 
@@ -378,17 +391,20 @@ export class MotionSettings extends HTMLElement {
     on(".region-edit-btn", "click", (e) => this._openAreaDialog(/** @type {HTMLElement} */ (e.currentTarget)));
     on(".region-clear-btn", "click", () => this._saveAreas([]));
 
-    on(".sched-add", "click", () => {
+    const addSchedule = (extra) => {
       const list = getSettings().schedules;
       if (list.length >= MAX_SCHEDULES) return;
       let n = 1;
       while (list.some((s) => s.name === `${t("scheduleDefaultName")} ${n}`)) n++;
-      const sched = { id: "", name: `${t("scheduleDefaultName")} ${n}`, days: [0, 1, 2, 3, 4, 5, 6], start: "22:00", end: "06:00", enabled: true };
+      const sched = { id: "", name: `${t("scheduleDefaultName")} ${n}`, days: [0, 1, 2, 3, 4, 5, 6], start: "22:00", end: "06:00", enabled: true, ...extra };
       this._saveSchedules([...list, sched]);
       this._renderSchedules(true);
       const rows = this.shadowRoot.querySelectorAll(".sched .name");
       /** @type {HTMLElement | undefined} */ (/** @type {unknown} */ (rows[rows.length - 1]))?.focus();
-    });
+    };
+    on(".sched-add", "click", () => addSchedule({}));
+    // one-off window starting in 5 minutes, for an hour (adjustable afterwards)
+    on(".sched-soon", "click", () => addSchedule(oneOffIn(5, 1)));
 
     on(".persist-btn", "click", async () => {
       const ok = await requestPersistentStorage();
@@ -429,7 +445,7 @@ export class MotionSettings extends HTMLElement {
     txt(".ssens-label", "soundSensitivity");
     txt(".audio-label", "recordAudio"); txt(".mic-label", "micTest"); txt(".mic-test-btn span", this._mt ? "micTestStop" : "micTest");
     if (!this._mt) this._q(".mic-help").textContent = t("micTestHelp"); txt(".audio-help", "recordAudioHelp");
-    txt(".sched-help", "scheduleHelp"); txt(".sched-add span", "scheduleAdd");
+    txt(".sched-help", "scheduleHelp"); txt(".sched-add span", "scheduleAdd"); txt(".sched-soon span", "scheduleIn5");
     txt(".qual-label", "videoQuality"); txt(".q-low", "qualityLow"); txt(".q-medium", "qualityMedium"); txt(".q-high", "qualityHigh");
     txt(".format-label", "videoFormat");
     { const f = recordingFormat(getSettings().recordAudio); this._q(".format-val").textContent = f.mp4 ? "MP4" : "WebM";
@@ -466,10 +482,18 @@ export class MotionSettings extends HTMLElement {
     const list = getSettings().schedules;
     const r = evaluateSchedules(list);
     const time = (d) => d ? new Intl.DateTimeFormat(getLocale() === "zh-Hans" ? "zh-CN" : getLocale(),
-      { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(d) : "";
+      { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+        ...(d.getTime() - Date.now() > 6 * 86400000 ? { day: "numeric", month: "short" } : {}) }).format(d) : "";
     el.textContent = !r.restricted ? t("scheduleNone")
       : r.active ? t("scheduleNowActive", { name: r.names.join(", "), from: time(r.from), until: time(r.until) })
-      : t("scheduleNowInactive", { next: `${r.nextName} · ${time(r.next)} – ${time(r.nextUntil)}` });
+      : r.next ? t("scheduleNowInactive", { next: `${r.nextName} · ${time(r.next)} – ${time(r.nextUntil)}` })
+      : t("scheduleNoUpcoming");
+    // one-off windows that are over are shown faded
+    const now = new Date();
+    this.shadowRoot.querySelectorAll(".sched").forEach((li) => {
+      const s = list.find((x) => x.id === li.getAttribute("data-id"));
+      li.classList.toggle("over", !!s?.date && toDate(s.endDate || s.date, s.end) <= now);
+    });
   }
 
   /** Rebuild the schedule rows (`rebuild`) or just refresh texts. */
@@ -488,17 +512,36 @@ export class MotionSettings extends HTMLElement {
       li.className = "sched";
       const dayBtns = [1, 2, 3, 4, 5, 6, 0].map((d) =>
         `<button type="button" class="chip day" data-day="${d}" aria-pressed="${s.days.includes(d)}" aria-label="${long[d]}">${short[d]}</button>`).join("");
+      li.setAttribute("data-id", s.id);
+      const once = !!s.date;
       li.innerHTML = `
         <div class="line">
           <input type="text" class="name" maxlength="40" aria-label="${t("scheduleName")}">
           <label class="act"><input type="checkbox" class="switch en" aria-label="${t("scheduleActive")}"> <span>${t("scheduleActive")}</span></label>
           <button type="button" class="btn btn-danger btn-sm del" aria-label="${t("scheduleDelete")}: ${s.name.replace(/"/g, "&quot;")}">${t("scheduleDelete")}</button>
         </div>
+        <div class="kind">
+          <div class="seg" role="radiogroup" aria-label="${t("scheduleRepeat")}">
+            <label><input type="radio" name="kind-${idx}" value="weekly"${once ? "" : " checked"}><span>${t("scheduleWeekly")}</span></label>
+            <label><input type="radio" name="kind-${idx}" value="once"${once ? " checked" : ""}><span>${t("scheduleOnce")}</span></label>
+          </div>
+        </div>
+        ${once ? `
+        <div class="times">
+          <label>${t("scheduleStart")} <input type="date" class="start-date" required aria-label="${t("scheduleStartDate")}"> <input type="time" class="start" required aria-label="${t("scheduleStart")}"></label>
+          <label>${t("scheduleEnd")} <input type="date" class="end-date" required aria-label="${t("scheduleEndDate")}"> <input type="time" class="end" required aria-label="${t("scheduleEnd")}"></label>
+        </div>
+        <p class="err" role="alert"></p>
+        <div class="quick">
+          <button type="button" class="chip soon">${t("scheduleIn5")}</button>
+          <span class="quick-label">${t("scheduleDuration")}</span>
+          ${[1, 4, 8, 12].map((h) => `<button type="button" class="chip dur" data-h="${h}">${t("scheduleHours", { h })}</button>`).join("")}
+        </div>` : `
         <div class="days" role="group" aria-label="${t("scheduleDays")}">${dayBtns}</div>
         <div class="times">
           <label>${t("scheduleStart")} <input type="time" class="start" required></label>
-          <label>${t("scheduleEnd")} <input type="time" class="end" required></label>
-        </div>`;
+          <label>${t("scheduleEnd")} <input type="time" class="end" required> <span class="next-day"></span></label>
+        </div>`}`;
       const $ = (sel) => /** @type {HTMLInputElement} */ (li.querySelector(sel));
       $(".name").value = s.name;
       $(".en").checked = s.enabled;
@@ -513,16 +556,91 @@ export class MotionSettings extends HTMLElement {
       };
       $(".name").addEventListener("change", () => update({ name: $(".name").value }));
       $(".en").addEventListener("change", () => update({ enabled: $(".en").checked }));
-      $(".start").addEventListener("change", () => { if ($(".start").value) update({ start: $(".start").value }); });
-      $(".end").addEventListener("change", () => { if ($(".end").value) update({ end: $(".end").value }); });
-      li.querySelectorAll(".day").forEach((b) => b.addEventListener("click", () => {
-        const d = Number(b.getAttribute("data-day"));
+      li.querySelectorAll(`input[name="kind-${idx}"]`).forEach((r) => r.addEventListener("change", () => {
         const cur = getSettings().schedules.find((x) => x.id === s.id);
         if (!cur) return;
-        const days = cur.days.includes(d) ? cur.days.filter((x) => x !== d) : [...cur.days, d];
-        b.setAttribute("aria-pressed", String(days.includes(d)));
-        update({ days });
+        if (/** @type {HTMLInputElement} */ (r).value === "once") {
+          // start at the next time the weekly window would have started (today or tomorrow)
+          const now = new Date();
+          let from = toDate(dateStr(now), cur.start);
+          if (from <= now) from.setDate(from.getDate() + 1);
+          update({ date: dateStr(from), endDate: "" });   // normalizing puts the end after the start
+        } else {
+          update({ date: undefined, endDate: undefined });
+        }
+        this._renderSchedules(true);
+        /** @type {HTMLElement | null} */ (this.shadowRoot.querySelector(`.sched[data-id="${s.id}"] input[name="kind-${idx}"]:checked`))?.focus();
       }));
+      if (once) {
+        $(".start-date").value = s.date;
+        $(".end-date").value = s.endDate || s.date;
+        const read = () => ({
+          from: $(".start-date").value && $(".start").value ? toDate($(".start-date").value, $(".start").value) : null,
+          until: $(".end-date").value && $(".end").value ? toDate($(".end-date").value, $(".end").value) : null,
+        });
+        const show = (from, until) => {
+          $(".start-date").value = dateStr(from); $(".start").value = timeStr(from);
+          $(".end-date").value = dateStr(until); $(".end").value = timeStr(until);
+        };
+        const save = (from, until) => {
+          show(from, until);
+          $(".end-date").min = $(".start-date").value;
+          update({ date: dateStr(from), start: timeStr(from), endDate: dateStr(until), end: timeStr(until) });
+        };
+        $(".end-date").min = s.date;
+        const setError = (msg) => {
+          li.querySelector(".err").textContent = msg;
+          for (const c of [".end-date", ".end"]) $(c).setAttribute("aria-invalid", String(!!msg));
+        };
+        // moving the start keeps the duration, so the end can never fall before it
+        const onStart = () => {
+          const cur = getSettings().schedules.find((x) => x.id === s.id);
+          const { from } = read();
+          if (!cur || !from) return;
+          const dur = toDate(cur.endDate || cur.date, cur.end).getTime() - toDate(cur.date, cur.start).getTime();
+          setError("");
+          save(from, new Date(from.getTime() + Math.max(dur, 60000)));
+        };
+        const onEnd = () => {
+          const { from, until } = read();
+          if (!from || !until) return;
+          if (until <= from) return setError(t("scheduleEndBeforeStart"));
+          setError("");
+          save(from, until);
+        };
+        $(".start-date").addEventListener("change", onStart);
+        $(".start").addEventListener("change", onStart);
+        $(".end-date").addEventListener("change", onEnd);
+        $(".end").addEventListener("change", onEnd);
+        li.querySelector(".soon")?.addEventListener("click", () => {
+          const cur = getSettings().schedules.find((x) => x.id === s.id);
+          if (!cur) return;
+          const dur = toDate(cur.endDate || cur.date, cur.end).getTime() - toDate(cur.date, cur.start).getTime();
+          const o = oneOffIn(5, Math.max(dur, 60000) / 3600000);
+          setError("");
+          save(toDate(o.date, o.start), toDate(o.endDate, o.end));
+        });
+        li.querySelectorAll(".dur").forEach((b) => b.addEventListener("click", () => {
+          const { from } = read();
+          if (!from) return;
+          setError("");
+          save(from, new Date(from.getTime() + Number(b.getAttribute("data-h")) * 3600000));
+        }));
+      } else {
+        // a weekly window that ends at or before its start carries on into the next day: say so
+        const nextDay = () => { li.querySelector(".next-day").textContent = $(".end").value <= $(".start").value ? t("scheduleNextDay") : ""; };
+        nextDay();
+        $(".start").addEventListener("change", () => { if ($(".start").value) update({ start: $(".start").value }); nextDay(); });
+        $(".end").addEventListener("change", () => { if ($(".end").value) update({ end: $(".end").value }); nextDay(); });
+        li.querySelectorAll(".day").forEach((b) => b.addEventListener("click", () => {
+          const d = Number(b.getAttribute("data-day"));
+          const cur = getSettings().schedules.find((x) => x.id === s.id);
+          if (!cur) return;
+          const days = cur.days.includes(d) ? cur.days.filter((x) => x !== d) : [...cur.days, d];
+          b.setAttribute("aria-pressed", String(days.includes(d)));
+          update({ days });
+        }));
+      }
       li.querySelector(".del")?.addEventListener("click", () => {
         this._saveSchedules(getSettings().schedules.filter((x) => x.id !== s.id));
         this._renderSchedules(true);
@@ -530,6 +648,7 @@ export class MotionSettings extends HTMLElement {
       });
       ul.appendChild(li);
     });
+    this._renderScheduleStatus();
   }
 
   _renderRegion() {

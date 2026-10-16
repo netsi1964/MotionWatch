@@ -75,7 +75,11 @@ function parseSched(str) {
   const start = hm(p[2]), end = hm(p[3]);
   if (!start || !end) return null;
   const days = [...new Set(p[1].split("").map(Number).filter((d) => d >= 0 && d <= 6))];
-  return { name: p[0], days, start, end, enabled: p[4] !== "0" };
+  const out = { name: p[0], days, start, end, enabled: p[4] !== "0" };
+  // optional one-off dates: dYYYYMMDD-YYYYMMDD
+  const d = /^d(\d{4})(\d{2})(\d{2})-(\d{4})(\d{2})(\d{2})$/.exec(p[5] || "");
+  if (d) { out.date = `${d[1]}-${d[2]}-${d[3]}`; out.endDate = `${d[4]}-${d[5]}-${d[6]}`; }
+  return out;
 }
 
 /**
@@ -107,7 +111,8 @@ export function toQuery(s, defaults) {
     }
   }
   for (const sc of s.schedules || []) {
-    q.append("sched", `${clean(sc.name)}~${sc.days.join("")}~${sc.start.replace(":", "")}~${sc.end.replace(":", "")}~${sc.enabled ? 1 : 0}`);
+    const dates = sc.date ? `~d${sc.date.replace(/-/g, "")}-${(sc.endDate || sc.date).replace(/-/g, "")}` : "";
+    q.append("sched", `${clean(sc.name)}~${sc.days.join("")}~${sc.start.replace(":", "")}~${sc.end.replace(":", "")}~${sc.enabled ? 1 : 0}${dates}`);
   }
   // keep ~ , : readable in the address bar
   return q.toString().replace(/%7E/gi, "~").replace(/%2C/gi, ",").replace(/%3A/gi, ":");

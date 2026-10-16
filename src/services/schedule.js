@@ -2,16 +2,44 @@
  * Named time windows during which monitoring is armed.
  * No (enabled) schedules = always armed.
  *
- * @typedef {{ id: string; name: string; days: number[]; start: string; end: string; enabled: boolean }} Schedule
- *   days use Date#getDay(): 0 = Sunday … 6 = Saturday. If end <= start the window runs past midnight
- *   (start === end means the whole day).
+ * @typedef {{ id: string; name: string; days: number[]; start: string; end: string; enabled: boolean; date?: string; endDate?: string }} Schedule
+ *   Weekly (no `date`): days use Date#getDay(): 0 = Sunday … 6 = Saturday. If end <= start the window
+ *   runs past midnight (start === end means the whole day).
+ *   One-off (`date` set, "YYYY-MM-DD"): runs once from date+start to endDate+end; the end is always
+ *   after the start. Once it is over it never runs again (but still counts as a schedule).
  */
 
 export const MAX_SCHEDULES = 8;
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 const newId = () => "s" + Math.random().toString(36).slice(2, 8);
 const toMin = (s) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3, 5));
+const pad = (n) => String(n).padStart(2, "0");
+
+/** Local "YYYY-MM-DD" and "HH:MM" of a Date */
+export const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export const timeStr = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/** Local Date from "YYYY-MM-DD" + "HH:MM" */
+export function toDate(date, hhmm) {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d, Number(hhmm.slice(0, 2)), Number(hhmm.slice(3, 5)));
+}
+
+/** Start and end of a one-off schedule */
+const bounds = (s) => ({ from: toDate(s.date, s.start), until: toDate(s.endDate || s.date, s.end) });
+
+/**
+ * A one-off window from `minutes` from now, lasting `hours`.
+ * @returns {Pick<Schedule, 'days' | 'start' | 'end' | 'date' | 'endDate'>}
+ */
+export function oneOffIn(minutes, hours = 1, now = new Date()) {
+  const from = new Date(now.getTime() + minutes * 60000);
+  from.setSeconds(0, 0);
+  const until = new Date(from.getTime() + hours * 3600000);
+  return { days: [0, 1, 2, 3, 4, 5, 6], date: dateStr(from), start: timeStr(from), endDate: dateStr(until), end: timeStr(until) };
+}
 
 /** Validate stored/user data. */
 export function normalizeSchedules(list) {
@@ -25,20 +53,37 @@ export function normalizeSchedules(list) {
     const days = Array.isArray(raw.days)
       ? [...new Set(raw.days.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort()
       : [0, 1, 2, 3, 4, 5, 6];
-    out.push({
+    /** @type {Schedule} */
+    const s = {
       id,
       name: (typeof raw.name === "string" ? raw.name.trim() : "").slice(0, 40) || `Schedule ${out.length + 1}`,
       days,
       start: TIME_RE.test(raw.start) ? raw.start : "22:00",
       end: TIME_RE.test(raw.end) ? raw.end : "06:00",
       enabled: raw.enabled !== false,
-    });
+    };
+    if (DATE_RE.test(raw.date)) {
+      s.date = raw.date;
+      s.endDate = DATE_RE.test(raw.endDate) && raw.endDate >= raw.date ? raw.endDate : raw.date;
+      // the end may never come before the start: roll it on to the next day after the start
+      const { from, until } = bounds(s);
+      if (until <= from) {
+        const next = toDate(s.date, s.end);
+        if (next <= from) next.setDate(next.getDate() + 1);
+        s.endDate = dateStr(next);
+      }
+    }
+    out.push(s);
   }
   return out;
 }
 
 /** Is `s` running at `now`? */
 function isActiveAt(s, now) {
+  if (s.date) {
+    const { from, until } = bounds(s);
+    return now >= from && now < until;
+  }
   const day = now.getDay();
   const mins = now.getHours() * 60 + now.getMinutes();
   const a = toMin(s.start), b = toMin(s.end);
@@ -81,6 +126,11 @@ export function evaluate(schedules, now = new Date()) {
     // latest end among the running schedules (they may overlap)
     let until = null, from = null;
     for (const s of running) {
+      if (s.date) {
+        const b = bounds(s);
+        if (!until || b.until > until) ({ from, until } = b);
+        continue;
+      }
       const e = nextOccurrence(s.end, null, now);   // a start === end window is a full day: it ends at the next such time
       if (e && (!until || e > until)) { until = e; from = prevOccurrence(s.start, now); }
     }
@@ -89,6 +139,11 @@ export function evaluate(schedules, now = new Date()) {
 
   let next = null, nextName = "", nextUntil = null;
   for (const s of enabled) {
+    if (s.date) {
+      const b = bounds(s);
+      if (b.from > now && (!next || b.from < next)) { next = b.from; nextName = s.name; nextUntil = b.until; }
+      continue;
+    }
     const n = nextOccurrence(s.start, s.days, now);
     if (n && (!next || n < next)) { next = n; nextName = s.name; nextUntil = nextOccurrence(s.end, null, n); }
   }

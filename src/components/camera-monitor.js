@@ -413,9 +413,10 @@ export class CameraMonitor extends HTMLElement {
     if (!date) return "";
     const tag = getLocale() === "zh-Hans" ? "zh-CN" : getLocale();
     const same = date.toDateString() === new Date().toDateString();
+    const far = date.getTime() - Date.now() > 6 * 86400000;   // a one-off window can be weeks away
     return new Intl.DateTimeFormat(tag, same
       ? { hour: "2-digit", minute: "2-digit", hour12: false }
-      : { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+      : { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false, ...(far ? { day: "numeric", month: "short" } : {}) }).format(date);
   }
 
   /** Re-evaluate the schedules (at most once a second). Returns true if arming changed. */
@@ -445,7 +446,8 @@ export class CameraMonitor extends HTMLElement {
     if (!sc.restricted) return "";
     return sc.active
       ? t("noteInWindow", { name: sc.names.join(", "), from: this._when(sc.from), until: this._when(sc.until) })
-      : t("noteWaiting", { name: sc.nextName, next: this._when(sc.next), until: this._when(sc.nextUntil) });
+      : sc.next ? t("noteWaiting", { name: sc.nextName, next: this._when(sc.next), until: this._when(sc.nextUntil) })
+      : t("scheduleNoUpcoming");
   }
 
   /** Sync indicator, note, buttons and tell the app header. */
@@ -962,7 +964,8 @@ export class CameraMonitor extends HTMLElement {
     } else {
       /** @type {HTMLElement} */ (this.shadowRoot.querySelector(".sound-sens")).hidden = !s.soundTrigger;
     }
-    this._refreshSchedule(true);
+    // times may have moved without arming changing: the status line must follow anyway
+    if (!this._refreshSchedule(true)) this._updateStatus();
     this.motion.setAreas(s.detectionAreas);
     this._layoutRegion();
     this.motion.setSensitivity(s.sensitivity);

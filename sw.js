@@ -2,7 +2,7 @@
    Camera / MediaRecorder / IndexedDB recordings still require a live page and permissions.
    Offline does NOT enable background recording.
 */
-const CACHE = "motionwatch-shell-version2026-10-16-16-45";
+const CACHE = "motionwatch-shell-version2026-10-16-21-44";
 const ASSETS = [
   "./",
   "./index.html",

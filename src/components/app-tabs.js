@@ -1,6 +1,7 @@
 import { t, onLocaleChange } from "../services/i18n.js";
 import { sharedCss } from "../styles/shared.js";
 import { icon } from "./icons.js";
+import { countRecordings, RECORDINGS_CHANGED } from "../services/storage.js";
 
 const TABS = [
   ["camera", "camera", "tabCamera"],
@@ -32,7 +33,16 @@ template.innerHTML = `
       display: grid; place-items: center; width: 3.6rem; height: 1.9rem; border-radius: var(--mw-radius-full);
       transition: background var(--mw-transition);
     }
+    button.tab .pill { position: relative; }
     button.tab .ico { width: 1.4rem; height: 1.4rem; }
+    .badge {
+      position: absolute; top: -0.35rem; right: 0.3rem;
+      min-width: 1.15rem; height: 1.15rem; padding: 0 0.3rem; box-sizing: border-box;
+      display: grid; place-items: center; border-radius: var(--mw-radius-full);
+      background: var(--mw-accent); color: #fff; font-size: 0.68rem; font-weight: 700; line-height: 1;
+      font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--mw-surface);
+    }
+    .badge[hidden] { display: none; }
     button.tab:hover .pill { background: var(--mw-surface-3); }
     button.tab[aria-selected="true"] { color: var(--mw-text); }
     button.tab[aria-selected="true"] .pill { background: var(--mw-accent-soft); color: var(--mw-accent); }
@@ -45,7 +55,7 @@ template.innerHTML = `
   </style>
   <nav role="tablist" part="nav">${TABS.map(([id, ic], i) => `
     <button type="button" class="tab" role="tab" id="tab-${id}" aria-controls="panel-${id}" tabindex="${i ? -1 : 0}" data-tab="${id}" aria-selected="${i === 0}">
-      <span class="pill">${icon(ic)}</span>
+      <span class="pill">${icon(ic)}${id === "recordings" ? '<span class="badge" aria-hidden="true" hidden></span>' : ""}</span>
       <span class="label"></span>
     </button>`).join("")}
   </nav>
@@ -59,11 +69,15 @@ export class AppTabs extends HTMLElement {
     /** @type {string} */
     this._active = "camera";
     this._unsub = null;
+    this._count = 0;
+    this._onRecordingsChanged = () => this._updateCount();
   }
 
   connectedCallback() {
     this._renderLabels();
     this._unsub = onLocaleChange(() => this._renderLabels());
+    window.addEventListener(RECORDINGS_CHANGED, this._onRecordingsChanged);
+    this._updateCount();
     this.shadowRoot.querySelectorAll('[role="tab"]').forEach((btn) => {
       btn.addEventListener("click", () => {
         const tab = btn.getAttribute("data-tab");
@@ -89,6 +103,21 @@ export class AppTabs extends HTMLElement {
 
   disconnectedCallback() {
     this._unsub?.();
+    window.removeEventListener(RECORDINGS_CHANGED, this._onRecordingsChanged);
+  }
+
+  async _updateCount() {
+    try {
+      this._count = await countRecordings();
+    } catch {
+      this._count = 0;
+    }
+    const badge = this.shadowRoot.querySelector("#tab-recordings .badge");
+    if (badge) {
+      badge.textContent = this._count > 99 ? "99+" : String(this._count);
+      badge.hidden = this._count === 0;
+    }
+    this._renderLabels();
   }
 
   _renderLabels() {
@@ -99,6 +128,10 @@ export class AppTabs extends HTMLElement {
       const label = this.shadowRoot.querySelector(`#tab-${id} .label`);
       if (label) label.textContent = t(key);
     }
+    // screen readers get the count in the tab name, since the badge itself is aria-hidden
+    const rec = this.shadowRoot.querySelector("#tab-recordings");
+    if (this._count) rec?.setAttribute("aria-label", `${t("tabRecordings")}, ${t("recordingsCount", { count: this._count })}`);
+    else rec?.removeAttribute("aria-label");
   }
 
   select(tab) {

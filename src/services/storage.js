@@ -8,6 +8,11 @@ const DB_NAME = "motionwatch-db";
 const DB_VERSION = 1;
 const STORE = "recordings";
 
+/** Fired on window whenever recordings are added or removed */
+export const RECORDINGS_CHANGED = "mw-recordings-changed";
+
+const notifyChanged = () => window.dispatchEvent(new Event(RECORDINGS_CHANGED));
+
 /** @type {IDBDatabase | null} */
 let dbPromise = null;
 
@@ -65,7 +70,10 @@ export async function saveRecording(data) {
   };
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.oncomplete = () => resolve(record);
+    tx.oncomplete = () => {
+      notifyChanged();
+      resolve(record);
+    };
     tx.onerror = () => reject(tx.error);
     tx.objectStore(STORE).put(record);
   });
@@ -86,6 +94,16 @@ export async function listRecordings() {
   });
 }
 
+/** @returns {Promise<number>} number of stored recordings (without loading the blobs) */
+export async function countRecordings() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE, "readonly").objectStore(STORE).count();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /** @param {string} id */
 export async function getRecording(id) {
   const db = await openDB();
@@ -102,7 +120,10 @@ export async function deleteRecording(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      notifyChanged();
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
     tx.objectStore(STORE).delete(id);
   });
@@ -113,7 +134,10 @@ export async function deleteRecordings(ids) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => {
+      notifyChanged();
+      resolve();
+    };
     tx.onerror = () => reject(tx.error);
     const store = tx.objectStore(STORE);
     for (const id of ids) store.delete(id);
